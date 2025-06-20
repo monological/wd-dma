@@ -1,0 +1,9 @@
+*.cmd
+Module.symvers
+modules.order
+test
+wd_dma.ko
+wd_dma.mod
+wd_dma.mod.c
+wd_dma.mod.o
+wd_dma.o
