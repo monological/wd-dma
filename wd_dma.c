@@ -20,7 +20,7 @@
 #include <linux/mutex.h>
 
 /* ---------- constants -------------------------------------------------- */
-#define WD_SIZE   (1U << 16)   /* 64 KiB */
+#define WD_SIZE   (1U << 22) /* 4 MiB buffer size */
 
 /* ---------- context ---------------------------------------------------- */
 struct wd_ctx {
