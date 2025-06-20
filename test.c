@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <stdint.h>
-int main() {
+#include <unistd.h>
+
+int main(void) {
     int fd = open("/dev/wd_dma", O_RDWR);
     uint64_t addr;
     ioctl(fd, 0, &addr);
