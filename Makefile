@@ -23,8 +23,7 @@ test: test.c
 	$(CC) -Wall -O2 -o $@ $<
 
 install: all
-	sudo rmmod wd_dma 2>/dev/null || true
-	sudo insmod wd_dma.ko
+	./install.sh wd_dma.ko
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
