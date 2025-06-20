@@ -18,6 +18,7 @@
 #include <linux/mm.h>
 #include <linux/compat.h>
 #include <linux/mutex.h>
+#include <linux/sizes.h>
 
 /* ---------- constants -------------------------------------------------- */
 #define WD_SIZE   (1U << 22) /* 4 MiB buffer size */
