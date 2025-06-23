@@ -152,32 +152,36 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		/* replace any existing mapping */
 		wd_unmap_hugepage();
 
-		if (pin_user_pages_fast(uaddr, 1,
-					FOLL_WRITE | FOLL_LONGTERM,
-					&page) != 1) {
-			pr_err("WD_IOC_MAP_HUGEPAGE: pin_user_pages_fast failed\n");
-			ret = -EFAULT;
+		/* pin exactly one page */
+		long pinned = pin_user_pages_fast(uaddr, 1,
+						  FOLL_WRITE | FOLL_LONGTERM,
+						  &page);
+		if (pinned != 1) {
+			pr_err("WD_IOC_MAP_HUGEPAGE: pin_user_pages_fast(vaddr 0x%lx) returned %ld\n",
+			       uaddr, pinned);
+			ret = (pinned < 0) ? pinned : -EFAULT;
 			break;
 		}
 
 		len = PAGE_SIZE << compound_order(page);
 
-        /* only allow hugepages and reject regular 4 KiB pages */
-        if (compound_order(page) == 0) {
-            struct page *pages[1] = { page };
-            unpin_user_pages_dirty_lock(pages, 1, true);
-            pr_err("WD_IOC_MAP_HUGEPAGE: vaddr 0x%lx is not backed by a hugepage\n",
-                    uaddr);
-            ret = -EINVAL;
-            break;
-        }
+		/* only allow hugepages and reject regular 4 KiB pages */
+		if (compound_order(page) == 0) {
+			struct page *pages[1] = { page };
+			unpin_user_pages_dirty_lock(pages, 1, true);
+			pr_err("WD_IOC_MAP_HUGEPAGE: vaddr 0x%lx order=0 (not hugepage)\n",
+			       uaddr);
+			ret = -EINVAL;
+			break;
+		}
 
 		dma = dma_map_page(&wd.pdev->dev, page, 0, len,
 				   DMA_BIDIRECTIONAL);
 		if (dma_mapping_error(&wd.pdev->dev, dma)) {
 			struct page *pages[1] = { page };
 			unpin_user_pages_dirty_lock(pages, 1, true);
-			pr_err("WD_IOC_MAP_HUGEPAGE: dma_map_page failed\n");
+			pr_err("WD_IOC_MAP_HUGEPAGE: dma_map_page failed (vaddr 0x%lx len %zu)\n",
+			       uaddr, len);
 			ret = -EIO;
 			break;
 		}
@@ -190,8 +194,9 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				   sizeof(dma)) ? -EFAULT : 0;
 
 		if (!ret)
-			pr_info("hugepage pinned: vaddr 0x%lx, len %zu, IOVA 0x%llx\n",
-				uaddr, len, (unsigned long long)dma);
+			pr_info("WD_IOC_MAP_HUGEPAGE: hugepage pinned with vaddr 0x%lx order=%d len=%zu -> IOVA 0x%llx\n",
+				uaddr, compound_order(page), len,
+				(unsigned long long)dma);
 		break;
 	}
 
