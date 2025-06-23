@@ -1,14 +1,106 @@
+/* test.c – verify both wd_dma ioctls with clear PASS / FAIL output */
+
+#define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdio.h>
-#include <sys/ioctl.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <errno.h>
+#include <sys/syscall.h>
+#include <linux/memfd.h>
 
-int main(void) {
-    int fd = open("/dev/wd_dma", O_RDWR);
-    uint64_t addr;
-    ioctl(fd, 0, &addr);
-    printf("FPGA should use IOVA 0x%llx\n", (unsigned long long)addr);
-    close(fd);
+/* ioctl numbers (mirror wd_dma.c) */
+#define WD_IOC_GET_COHERENT 0
+#define WD_IOC_MAP_HUGEPAGE 1
+
+#ifndef MAP_HUGE_SHIFT            /* for older glibc headers */
+#define MAP_HUGE_SHIFT 26
+#endif
+#ifndef MAP_HUGE_2MB
+#define MAP_HUGE_2MB   (21 << MAP_HUGE_SHIFT)   /* 2 MiB */
+#endif
+#ifndef MFD_HUGE_2MB
+#define MFD_HUGE_2MB   (21 << MFD_HUGE_SHIFT)
+#endif
+
+#define HUGEPAGE_SZ (2 * 1024 * 1024)
+
+/* ----------------------------------------------------------------------------
+ * helper: allocate a single 2 MiB hugetlb page via memfd + mmap
+ * returns pointer or NULL on error
+ * --------------------------------------------------------------------------*/
+static void *alloc_hugetlb_2m(void)
+{
+    int fd = syscall(SYS_memfd_create, "wd_dma_hp",
+                     MFD_CLOEXEC | MFD_HUGETLB | MFD_HUGE_2MB);
+    if (fd < 0) { perror("memfd_create"); return NULL; }
+
+    if (ftruncate(fd, HUGEPAGE_SZ)) { perror("ftruncate"); return NULL; }
+
+    void *addr = mmap(NULL, HUGEPAGE_SZ,
+                      PROT_READ | PROT_WRITE,
+                      MAP_SHARED, fd, 0);
+    if (addr == MAP_FAILED) { perror("mmap"); return NULL; }
+
+    /* keep fd open so the mapping remains valid */
+    return addr;
+}
+
+/* ----------------------------------------------------------------------------
+ * Test 1: built-in 4 MiB coherent buffer
+ * --------------------------------------------------------------------------*/
+static int test_coherent(int dev)
+{
+    uint64_t iova = 0;
+    if (ioctl(dev, WD_IOC_GET_COHERENT, &iova)) {
+        perror("WD_IOC_GET_COHERENT");
+        printf("coherent buffer: FAIL\n");
+        return -1;
+    }
+    printf("coherent buffer: PASS (IOVA 0x%llx)\n",
+           (unsigned long long)iova);
     return 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * Test 2: map one hugetlb page
+ * --------------------------------------------------------------------------*/
+static int test_hugepage(int dev)
+{
+    void *hp = alloc_hugetlb_2m();
+    if (!hp) { printf("hugepage alloc: FAIL\n"); return -1; }
+
+    /* driver overwrites with IOVA */
+    uint64_t arg = (uint64_t)hp;
+    if (ioctl(dev, WD_IOC_MAP_HUGEPAGE, &arg)) {
+        perror("WD_IOC_MAP_HUGEPAGE");
+        printf("MAP_HUGEPAGE: FAIL\n");
+        munmap(hp, HUGEPAGE_SZ);
+        return -1;
+    }
+
+    printf("map hugepage: PASS (vaddr %p -> IOVA 0x%llx)\n",
+           hp, (unsigned long long)arg);
+    munmap(hp, HUGEPAGE_SZ);
+    return 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * main – run both tests and summarise
+ * --------------------------------------------------------------------------*/
+int main(void)
+{
+    int dev = open("/dev/wd_dma", O_RDWR);
+    if (dev < 0) { perror("open /dev/wd_dma"); return 1; }
+
+    int fails = 0;
+    fails += test_coherent(dev);
+    fails += test_hugepage(dev);
+
+    close(dev);
+
+    printf("status: %s\n", fails ? "FAIL" : "PASS");
+    return fails ? 1 : 0;
 }
