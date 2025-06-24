@@ -35,6 +35,8 @@
 #define WD_IOC_GET_COHERENT 0
 #define WD_IOC_MAP_HUGEPAGE 1
 
+#define WD_ERROR_IF_NOT_HUGEPAGE 0
+
 /* ---------- context ---------------------------------------------------- */
 struct wd_ctx {
 	struct platform_device *pdev;
@@ -62,6 +64,31 @@ static struct wd_ctx wd = {
 	.map_cnt    = ATOMIC_INIT(0),
 	.lock       = __MUTEX_INITIALIZER(wd.lock),
 };
+
+/* ---------- helpers---------------------------------------------------- */
+
+char *order_to_size_str(unsigned int order, char *buf, size_t len)
+{
+    unsigned long long bytes;
+
+    if (order >= (sizeof(unsigned long long) * 8 - PAGE_SHIFT)) {
+        scnprintf(buf, len, "overflow");
+        return buf;
+    }
+
+    bytes = (unsigned long long)PAGE_SIZE << order;
+
+    if (!(bytes & ((1ULL << 30) - 1)))
+        scnprintf(buf, len, "%lluGiB", bytes >> 30);
+    else if (!(bytes & ((1ULL << 20) - 1)))
+        scnprintf(buf, len, "%lluMiB", bytes >> 20);
+    else if (!(bytes & ((1ULL << 10) - 1)))
+        scnprintf(buf, len, "%lluKiB", bytes >> 10);
+    else
+        scnprintf(buf, len, "%lluB", bytes);
+
+    return buf;
+}
 
 /* ---------- VMA helpers ------------------------------------------------ */
 static int wd_validate_vma(struct vm_area_struct *vma)
@@ -142,6 +169,9 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		struct page  *page;
 		size_t        len;
 		dma_addr_t    dma;
+        long pinned;
+        char pagesize[32];
+        int order;
 
 		if (copy_from_user(&uaddr, (void __user *)arg,
 				   sizeof(uaddr))) {
@@ -153,7 +183,7 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		wd_unmap_hugepage();
 
 		/* pin exactly one page */
-		long pinned = pin_user_pages_fast(uaddr, 1,
+		pinned = pin_user_pages_fast(uaddr, 1,
 						  FOLL_WRITE | FOLL_LONGTERM,
 						  &page);
 		if (pinned != 1) {
@@ -164,16 +194,23 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		len = PAGE_SIZE << compound_order(page);
+        order = compound_order(page);
+        order_to_size_str(order, pagesize, sizeof(pagesize));
 
 		/* only allow hugepages and reject regular 4 KiB pages */
-		if (compound_order(page) == 0) {
+		if (order == 0) {
+#if WD_ERROR_IF_NOT_HUGEPAGE
 			struct page *pages[1] = { page };
 			unpin_user_pages_dirty_lock(pages, 1, true);
-			pr_err("WD_IOC_MAP_HUGEPAGE: vaddr 0x%lx order=0 (not hugepage)\n",
-			       uaddr);
+			pr_err("WD_IOC_MAP_HUGEPAGE: vaddr=0x%lx pagesize=%s (not hugepage)\n",
+			       uaddr, pagesize);
 			ret = -EINVAL;
 			break;
-		}
+#else
+            pr_warn("WD_IOC_MAP_HUGEPAGE: vaddr=0x%lx pagesize=%s (not hugepage), but continuing anyway\n",
+                uaddr, pagesize);
+#endif
+        }
 
 		dma = dma_map_page(&wd.pdev->dev, page, 0, len,
 				   DMA_BIDIRECTIONAL);
@@ -194,9 +231,9 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				   sizeof(dma)) ? -EFAULT : 0;
 
 		if (!ret)
-			pr_info("WD_IOC_MAP_HUGEPAGE: hugepage pinned with vaddr 0x%lx order=%d len=%zu -> IOVA 0x%llx\n",
-				uaddr, compound_order(page), len,
-				(unsigned long long)dma);
+            pr_info("WD_IOC_MAP_HUGEPAGE: hugepage pinned with vaddr=0x%lx "
+                    "pagesize=%s len=%zu -> IOVA 0x%llx\n",
+                    uaddr, pagesize, len, (unsigned long long)dma);
 		break;
 	}
 
