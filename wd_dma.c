@@ -11,6 +11,9 @@
  *                               variable that initially contains the
  *                               user virtual address of the hugepage.
  *                               On success it is overwritten with the IOVA.
+ *   WD_IOC_PASSTHROUGH    (2) – argument is a pointer that contains an
+ *                               address already valid for the device; the
+ *                               same value is returned unchanged.
  *
  * The driver tracks at most one pinned hugepage. A second MAP_HUGEPAGE call
  * replaces any previous mapping and cleans it up automatically. All resources
@@ -34,6 +37,7 @@
 #define WD_SIZE             (1U << 22)   /* 4 MiB coherent buffer */
 #define WD_IOC_GET_COHERENT 0
 #define WD_IOC_MAP_HUGEPAGE 1
+#define WD_IOC_PASSTHROUGH  2
 
 #define WD_ERROR_IF_NOT_HUGEPAGE 0
 
@@ -237,12 +241,28 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         break;
     }
 
-	default:
-		ret = -EINVAL;
-	}
+    case WD_IOC_PASSTHROUGH: {
+        unsigned long addr;
 
-	mutex_unlock(&wd.lock);
-	return ret;
+        if (copy_from_user(&addr, (void __user *)arg, sizeof(addr))) {
+            ret = -EFAULT;
+            break;
+        }
+
+        ret = copy_to_user((void __user *)arg, &addr,
+                           sizeof(addr)) ? -EFAULT : 0;
+
+        if (!ret)
+            pr_info("WD_IOC_PASSTHROUGH: returned addr 0x%lx unmodified\n", addr);
+        break;
+    }
+
+    default:
+        ret = -EINVAL;
+    }
+
+    mutex_unlock(&wd.lock);
+    return ret;
 }
 
 #ifdef CONFIG_COMPAT
