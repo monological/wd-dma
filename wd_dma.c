@@ -32,6 +32,7 @@
 #include <linux/compat.h>
 #include <linux/mutex.h>
 #include <linux/sizes.h>
+#include <linux/types.h>
 
 /* ---------- constants -------------------------------------------------- */
 #define WD_SIZE             (1U << 22)   /* 4 MiB coherent buffer */
@@ -242,18 +243,21 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
 
     case WD_IOC_PASSTHROUGH: {
-        unsigned long addr;
+        __u64 __user *uptr = (__u64 __user *)compat_ptr(arg);
+        __u64 addr64;
 
-        if (copy_from_user(&addr, (void __user *)arg, sizeof(addr))) {
+        if (get_user(addr64, uptr)) {
+            ret = -EFAULT;
+            break;
+        }
+        if (put_user(addr64, uptr)) {
             ret = -EFAULT;
             break;
         }
 
-        ret = copy_to_user((void __user *)arg, &addr,
-                           sizeof(addr)) ? -EFAULT : 0;
-
-        if (!ret)
-            pr_info("WD_IOC_PASSTHROUGH: returned addr 0x%lx unmodified\n", addr);
+        pr_info("WD_IOC_PASSTHROUGH: addr 0x%llx returned unchanged\n",
+                (unsigned long long)addr64);
+        ret = 0;
         break;
     }
 

@@ -1,4 +1,4 @@
-/* test.c – verify both wd_dma ioctls with clear PASS / FAIL output */
+/* test.c – verify wd_dma ioctls with clear PASS / FAIL output */
 
 #define _GNU_SOURCE
 #include <fcntl.h>
@@ -12,8 +12,9 @@
 #include <linux/memfd.h>
 
 /* ioctl numbers (mirror wd_dma.c) */
-#define WD_IOC_GET_COHERENT 0
-#define WD_IOC_MAP_HUGEPAGE 1
+#define WD_IOC_GET_COHERENT  0
+#define WD_IOC_MAP_HUGEPAGE  1
+#define WD_IOC_PASSTHROUGH   2
 
 #ifndef MAP_HUGE_SHIFT            /* for older glibc headers */
 #define MAP_HUGE_SHIFT 26
@@ -88,7 +89,39 @@ static int test_hugepage(int dev)
 }
 
 /* ----------------------------------------------------------------------------
- * main – run both tests and summarise
+ * Test 3: passthrough – expect same address back unchanged
+ * --------------------------------------------------------------------------*/
+static int test_passthrough(int dev)
+{
+    /* allocate one regular page (anonymous) */
+    void *buf = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (buf == MAP_FAILED) { perror("mmap anon"); return -1; }
+
+    uint64_t orig = (uint64_t)buf;
+    uint64_t arg  = orig;
+
+    if (ioctl(dev, WD_IOC_PASSTHROUGH, &arg)) {
+        perror("WD_IOC_PASSTHROUGH");
+        printf("PASSTHROUGH: FAIL\n");
+        munmap(buf, 4096);
+        return -1;
+    }
+
+    if (arg != orig) {
+        printf("PASSTHROUGH: FAIL (expected 0x%llx, got 0x%llx)\n",
+               (unsigned long long)orig, (unsigned long long)arg);
+        munmap(buf, 4096);
+        return -1;
+    }
+
+    printf("passthrough: PASS (addr %p returned unchanged)\n", buf);
+    munmap(buf, 4096);
+    return 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * main – run all tests and summarise
  * --------------------------------------------------------------------------*/
 int main(void)
 {
@@ -98,6 +131,7 @@ int main(void)
     int fails = 0;
     fails += test_coherent(dev);
     fails += test_hugepage(dev);
+    fails += test_passthrough(dev);
 
     close(dev);
 
