@@ -167,6 +167,8 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     case WD_IOC_GET_COHERENT: {
         ret = copy_to_user((void __user *)arg, &wd.iova,
                            sizeof(wd.iova)) ? -EFAULT : 0;
+        if (!ret)
+            pr_info("WD_IOC_GET_COHERENT: IOVA %pad\n", &wd.iova);
         break;
     }
 
