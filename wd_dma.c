@@ -36,9 +36,10 @@
 
 /* ---------- constants -------------------------------------------------- */
 #define WD_SIZE             (1U << 22)   /* 4 MiB coherent buffer */
-#define WD_IOC_GET_COHERENT 0
-#define WD_IOC_MAP_HUGEPAGE 1
-#define WD_IOC_PASSTHROUGH  2
+#define WD_IOC_MAGIC          'W'
+#define WD_IOC_GET_COHERENT   _IOR (WD_IOC_MAGIC, 0, __u64)
+#define WD_IOC_MAP_HUGEPAGE   _IOWR(WD_IOC_MAGIC, 1, __u64)
+#define WD_IOC_PASSTHROUGH    _IOWR(WD_IOC_MAGIC, 2, __u64)
 
 #define WD_ERROR_IF_NOT_HUGEPAGE 0
 
@@ -243,23 +244,22 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
 
     case WD_IOC_PASSTHROUGH: {
-        __u64 __user *uptr = (__u64 __user *)compat_ptr(arg);
-        __u64 addr64;
+         __u64 addr64;
 
-        if (get_user(addr64, uptr)) {
-            ret = -EFAULT;
-            break;
-        }
-        if (put_user(addr64, uptr)) {
-            ret = -EFAULT;
-            break;
-        }
+         if (copy_from_user(&addr64, (void __user *)arg, sizeof(addr64))) {
+             ret = -EFAULT;
+             break;
+         }
+         if (copy_to_user((void __user *)arg, &addr64, sizeof(addr64))) {
+             ret = -EFAULT;
+             break;
+         }
 
-        pr_info("WD_IOC_PASSTHROUGH: addr 0x%llx returned unchanged\n",
-                (unsigned long long)addr64);
-        ret = 0;
-        break;
-    }
+         pr_info("WD_IOC_PASSTHROUGH: addr 0x%llx returned unchanged\n",
+                 (unsigned long long)addr64);
+         ret = 0;
+         break;
+     }
 
     default:
         ret = -EINVAL;

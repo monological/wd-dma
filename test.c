@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <linux/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <errno.h>
@@ -12,9 +13,10 @@
 #include <linux/memfd.h>
 
 /* ioctl numbers (mirror wd_dma.c) */
-#define WD_IOC_GET_COHERENT  0
-#define WD_IOC_MAP_HUGEPAGE  1
-#define WD_IOC_PASSTHROUGH   2
+#define WD_IOC_MAGIC          'W'
+#define WD_IOC_GET_COHERENT   _IOR (WD_IOC_MAGIC, 0, __u64)
+#define WD_IOC_MAP_HUGEPAGE   _IOWR(WD_IOC_MAGIC, 1, __u64)
+#define WD_IOC_PASSTHROUGH    _IOWR(WD_IOC_MAGIC, 2, __u64)
 
 #ifndef MAP_HUGE_SHIFT            /* for older glibc headers */
 #define MAP_HUGE_SHIFT 26
