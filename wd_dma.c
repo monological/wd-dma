@@ -231,6 +231,10 @@ static long wd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         }
 
+         /* push any dirty CPU lines to DRAM & invalidate them */
+         dma_sync_single_for_device(&wd.pdev->dev,
+                                    dma, len, DMA_BIDIRECTIONAL);
+
         wd.upage      = page;
         wd.upage_len  = len;
         wd.upage_iova = dma;
