@@ -138,6 +138,10 @@ static void wd_unmap_hugepage(void)
     if (!wd.upage)
         return;
 
+    dma_sync_single_for_cpu(&wd.pdev->dev,
+                            wd.upage_iova, wd.upage_len,
+                            DMA_BIDIRECTIONAL);
+
     /* unmap DMA */
     dma_unmap_page(&wd.pdev->dev,
                    wd.upage_iova,
